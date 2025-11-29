@@ -70,14 +70,15 @@ if uploaded_file:
             # Fark hesapla
             df_analysis['difference'] = df_analysis['billing_consumption'] - df_analysis['week_consumption']
             
-            # Sıfır bölme hatası önle
+            # Ortalama değeri kullanarak yüzde hesapla (daha adil)
+            avg_consumption = (df_analysis['week_consumption'] + df_analysis['billing_consumption']) / 2
             df_analysis['difference_percent'] = np.where(
-                df_analysis['week_consumption'] != 0,
-                (df_analysis['difference'] / df_analysis['week_consumption'] * 100).round(2),
+                avg_consumption != 0,
+                (df_analysis['difference'] / avg_consumption * 100).round(2),
                 0
             )
             
-            # Anomali tespiti
+            # Anomali tespiti: Mutlak fark + yüzde fark
             df_analysis['is_anomaly'] = abs(df_analysis['difference_percent']) > tolerance_percent
             
             df_analysis['status'] = df_analysis.apply(
