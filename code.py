@@ -1,81 +1,9 @@
-else:
-                st.success("✅ Anomali tespit edilmedi! Tüm sayaçlar normal.")
-            
-            # Excel olarak indir (TÜM VERİLER)
-            st.subheader("📊 Tüm Verileri Excel Olarak İndir")
-            
-            excel_file = io.BytesIO()
-            
-            # Excel dosyası oluştur
-            with pd.ExcelWriter(excel_file, engine='openpyxl') as writer:
-                # Sheet 1: Anomaliler
-                if len(anomalies) > 0:
-                    anomalies_export = anomalies[[
-                        'meter_id', 'week_consumption', 'week_consumption_normalized', 
-                        'billing_consumption', 'difference', 'difference_percent', 'status'
-                    ]].copy()
-                    anomalies_export.columns = [
-                        'Tesisatçı ID', f'Tüketim ({measured_day}gün)', 
-                        'Tüketim (30gün tahmin)', 'Faturalama (30gün)', 
-                        'Fark', 'Fark %', 'Durum'
-                    ]
-                    anomalies_export.to_excel(writer, sheet_name='Anomaliler', index=False)
-                
-                # Sheet 2: Tüm Veriler
-                all_data_export = df_analysis[[
-                    'meter_id', 'week_consumption', 'week_consumption_normalized', 
-                    'billing_consumption', 'difference', 'difference_percent', 'status'
-                ]].copy()
-                all_data_export.columns = [
-                    'Tesisatçı ID', f'Tüketim ({measured_day}gün)', 
-                    'Tüketim (30gün tahmin)', 'Faturalama (30gün)', 
-                    'Fark', 'Fark %', 'Durum'
-                ]
-                all_data_export.to_excel(writer, sheet_name='Tüm Veriler', index=False)
-                
-                # Sheet 3: Özet İstatistikler
-                summary_data = {
-                    'Metrik': [
-                        'Toplam Sayaç',
-                        'Anomali Sayısı',
-                        'Anomali Yüzdesi',
-                        'Ortalama Fark %',
-                        'Max Fark %',
-                        'Toplam Tüketim (Ölçüm)',
-                        'Toplam Tüketim (Tahmin)',
-                        'Toplam Faturalama',
-                        'Toplam Fark'
-                    ],
-                    'Değer': [
-                        len(df_analysis),
-                        df_analysis['is_anomaly'].sum(),
-                        f"{(df_analysis['is_anomaly'].sum() / len(df_analysis) * 100):.2f}%",
-                        f"{df_analysis['difference_percent'].mean():.2f}%",
-                        f"{df_analysis['difference_percent'].abs().max():.2f}%",
-                        f"{df_analysis['week_consumption'].sum():,.2f}",
-                        f"{df_analysis['week_consumption_normalized'].sum():,.2f}",
-                        f"{df_analysis['billing_consumption'].sum():,.2f}",
-                        f"{df_analysis['difference'].sum():,.2f}"
-                    ]
-                }
-                summary_df = pd.DataFrame(summary_data)
-                summary_df.to_excel(writer, sheet_name='Özet', index=False)
-            
-            excel_file.seek(0)
-            
-            st.download_button(
-                label="📊 TÜM VERİLERİ EXCEL OLARAK İNDİR",
-                data=excel_file,
-                file_name=f"tuketim_analizi_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )import streamlit as st
+import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from datetime import datetime
 import io
-from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 st.set_page_config(page_title="Tüketim Anomali Tespiti", layout="wide")
 st.title("📊 Uzaktan Okumalı Sayaç - Tüketim Anomali Tespiti")
@@ -149,17 +77,17 @@ if uploaded_file:
             # Ölçüm gününe göre tüketimini 30 güne normalize et
             df_analysis['week_consumption_normalized'] = df_analysis['week_consumption'] * (30 / measured_day)
             
-            # Fark hesapla (30 günlük normalized son hafta vs 30 günlük faturalama)
+            # Fark hesapla
             df_analysis['difference'] = df_analysis['billing_consumption'] - df_analysis['week_consumption_normalized']
             
-            # Yüzde fark: Normalized son hafta tahminine göre
+            # Yüzde fark
             df_analysis['difference_percent'] = np.where(
                 df_analysis['week_consumption_normalized'] != 0,
                 (df_analysis['difference'] / df_analysis['week_consumption_normalized'] * 100).round(2),
                 0
             )
             
-            # Anomali tespiti: Sadece toleranstan fazla fark
+            # Anomali tespiti
             df_analysis['is_anomaly'] = abs(df_analysis['difference_percent']) > tolerance_percent
             
             df_analysis['status'] = df_analysis.apply(
@@ -201,20 +129,13 @@ if uploaded_file:
                 ]].copy()
                 
                 display_df.columns = [
-                    'Tesisatçı ID', 'Tüketim (24gün)', 'Tüketim (30gün tahmin)', 'Faturalama (30gün)', 
+                    'Tesisatçı ID', f'Tüketim ({measured_day}gün)', 'Tüketim (30gün tahmin)', 'Faturalama (30gün)', 
                     'Fark', 'Fark %', 'Durum'
                 ]
                 
                 st.dataframe(display_df, use_container_width=True, hide_index=True)
-                
-                # İndirme butonu
-                csv = display_df.to_csv(index=False, encoding='utf-8-sig')
-                st.download_button(
-                    label="📥 Anomalileri CSV olarak indir",
-                    data=csv,
-                    file_name=f"anomalies_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv"
-                )
+            else:
+                st.success("✅ Anomali tespit edilmedi! Tüm sayaçlar normal.")
             
             # Durum özeti
             st.subheader("📈 Durum Dağılımı")
@@ -243,7 +164,6 @@ if uploaded_file:
                 st.plotly_chart(fig, use_container_width=True)
             
             with col2:
-                # Fark dağılımı
                 fig2 = go.Figure()
                 fig2.add_trace(go.Histogram(
                     x=df_analysis['difference_percent'],
@@ -265,7 +185,7 @@ if uploaded_file:
                 st.plotly_chart(fig2, use_container_width=True)
             
             # Scatter Plot
-            st.subheader("📉 Son Hafta vs Faturalama Karşılaştırması")
+            st.subheader("📉 Ölçüm vs Faturalama Karşılaştırması")
             
             normal_data = df_analysis[~df_analysis['is_anomaly']]
             anomaly_data = df_analysis[df_analysis['is_anomaly']]
@@ -291,7 +211,6 @@ if uploaded_file:
                 textfont=dict(size=10)
             ))
             
-            # Referans çizgisi (ideal durum)
             min_val = df_analysis[['week_consumption', 'billing_consumption']].min().min()
             max_val = df_analysis[['week_consumption', 'billing_consumption']].max().max()
             fig3.add_trace(go.Scatter(
@@ -303,8 +222,8 @@ if uploaded_file:
             ))
             
             fig3.update_layout(
-                title="Son Hafta Tüketimi vs Aylık Faturalama Tüketimi",
-                xaxis_title=f"Son Hafta Tüketimi ({week_col})",
+                title="Ölçüm Tüketimi vs Aylık Faturalama Tüketimi",
+                xaxis_title=f"Ölçüm Tüketimi ({week_col})",
                 yaxis_title=f"Faturalama Tüketimi ({billing_col})",
                 height=500,
                 hovermode='closest'
@@ -317,7 +236,7 @@ if uploaded_file:
             stat_col1, stat_col2, stat_col3 = st.columns(3)
             
             with stat_col1:
-                st.write(f"**Tüketim ({measured_day} gün)**")
+                st.write(f"**Ölçüm Tüketimi ({measured_day} gün)**")
                 st.write(f"Toplam: {df_analysis['week_consumption'].sum():,.2f}")
                 st.write(f"Ortalama: {df_analysis['week_consumption'].mean():,.2f}")
                 st.write(f"Medyan: {df_analysis['week_consumption'].median():,.2f}")
@@ -374,10 +293,82 @@ if uploaded_file:
             )
             
             filtered_df = df_analysis[df_analysis['status'].isin(filter_status)].copy()
-            filtered_df.columns = ['Tesisatçı ID', 'Son Hafta', 'Faturalama', 
-                                   'Fark', 'Fark %', 'Anomali', 'Durum']
+            filtered_df.columns = ['Tesisatçı ID', f'Tüketim ({measured_day}gün)', 'Tüketim (30gün tahmin)',
+                                   'Faturalama', 'Fark', 'Fark %', 'Anomali', 'Durum']
             
             st.dataframe(filtered_df, use_container_width=True, height=400, hide_index=True)
+            
+            # EXCEL DOWNLOAD
+            st.divider()
+            st.subheader("📊 Verileri Excel Olarak İndir")
+            
+            excel_buffer = io.BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                # Sheet 1: Anomaliler
+                if len(anomalies) > 0:
+                    anomalies_export = anomalies[[
+                        'meter_id', 'week_consumption', 'week_consumption_normalized', 
+                        'billing_consumption', 'difference', 'difference_percent', 'status'
+                    ]].copy()
+                    anomalies_export.columns = [
+                        'Tesisatçı ID', f'Tüketim ({measured_day}gün)', 'Tüketim (30gün tahmin)', 
+                        'Faturalama (30gün)', 'Fark', 'Fark %', 'Durum'
+                    ]
+                    anomalies_export.to_excel(writer, sheet_name='Anomaliler', index=False)
+                
+                # Sheet 2: Tüm Veriler
+                all_export = df_analysis[[
+                    'meter_id', 'week_consumption', 'week_consumption_normalized', 
+                    'billing_consumption', 'difference', 'difference_percent', 'status'
+                ]].copy()
+                all_export.columns = [
+                    'Tesisatçı ID', f'Tüketim ({measured_day}gün)', 'Tüketim (30gün tahmin)', 
+                    'Faturalama (30gün)', 'Fark', 'Fark %', 'Durum'
+                ]
+                all_export.to_excel(writer, sheet_name='Tüm Veriler', index=False)
+                
+                # Sheet 3: Özet
+                summary_data = {
+                    'Metrik': [
+                        'Toplam Sayaç',
+                        'Anomali Sayısı',
+                        'Anomali Yüzdesi (%)',
+                        'Normal Sayaç',
+                        'Fazla Anomali',
+                        'Eksik Anomali',
+                        'Ortalama Fark %',
+                        'Max Fark %',
+                        'Toplam Ölçüm Tüketimi',
+                        'Toplam Tahmin Tüketimi',
+                        'Toplam Faturalama',
+                        'Toplam Fark'
+                    ],
+                    'Değer': [
+                        len(df_analysis),
+                        df_analysis['is_anomaly'].sum(),
+                        f"{(df_analysis['is_anomaly'].sum() / len(df_analysis) * 100):.2f}%",
+                        len(df_analysis[~df_analysis['is_anomaly']]),
+                        len(fazla),
+                        len(eksik),
+                        f"{df_analysis['difference_percent'].mean():.2f}%",
+                        f"{df_analysis['difference_percent'].abs().max():.2f}%",
+                        f"{df_analysis['week_consumption'].sum():,.2f}",
+                        f"{df_analysis['week_consumption_normalized'].sum():,.2f}",
+                        f"{df_analysis['billing_consumption'].sum():,.2f}",
+                        f"{df_analysis['difference'].sum():,.2f}"
+                    ]
+                }
+                summary_df = pd.DataFrame(summary_data)
+                summary_df.to_excel(writer, sheet_name='Özet', index=False)
+            
+            excel_buffer.seek(0)
+            
+            st.download_button(
+                label="📥 TÜM VERİLERİ EXCEL OLARAK İNDİR",
+                data=excel_buffer,
+                file_name=f"tuketim_analizi_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
     
     except Exception as e:
         st.error(f"❌ Hata: {str(e)}")
@@ -391,19 +382,26 @@ else:
         ### Adım 1: Excel Dosya Hazırlığı
         - Excel dosyasında 3 sütun olmalıdır:
           - **Sütun 1**: Tesisatçı/Sayaç ID
-          - **Sütun 2**: 24 günlük tüketim (24.11.2025)
-          - **Sütun 3**: 30 günlük faturalama tüketimi (30.11.2025)
+          - **Sütun 2**: Ölçüm Tüketimi (24, 26, 27 gün vs)
+          - **Sütun 3**: 30 günlük Faturalama Tüketimi
         
         ### Adım 2: Dosya Yükleme
         - Excel dosyasını (.xlsx) yükleyin
         - Sütunları sistem tarafından tanımlanabilecek şekilde seçin
         
         ### Adım 3: Analiz
+        - Ölçüm gününü seçin (24, 26, 27, vs)
         - Tolerans yüzdesini ayarlayın (varsayılan %5)
         - "Anomali Analizi Başlat" butonuna tıklayın
         
         ### Sonuçlar
         - **✅ Normal**: Fark tolerans aralığında
-        - **⚠️ FAZLA**: Faturalama, son haftadan daha yüksek
-        - **⚠️ EKSİK**: Faturalama, son haftadan daha düşük
+        - **⚠️ FAZLA**: Faturalama, ölçümden daha yüksek
+        - **⚠️ EKSİK**: Faturalama, ölçümden daha düşük
+        
+        ### İndirme
+        - 3 sheet içeren Excel dosyası indirebilirsiniz:
+          1. **Anomaliler**: Sadece anomali tespit edilen sayaçlar
+          2. **Tüm Veriler**: Bütün sayaçlar
+          3. **Özet**: İstatistiksel özet
         """)
