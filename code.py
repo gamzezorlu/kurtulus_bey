@@ -20,7 +20,7 @@ tolerance_percent = st.sidebar.slider(
 
 # Veri yükleme
 st.header("1️⃣ Veri Yükleme")
-st.info("Excel dosyanızda: Tesisatçı | 24.11.2025 | 30.11.2025 sütunları olmalıdır")
+
 
 uploaded_file = st.file_uploader("Excel dosyasını yükleyin (.xlsx)", type=['xlsx', 'xls', 'csv'])
 
