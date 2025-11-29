@@ -97,6 +97,10 @@ if uploaded_file:
                 axis=1
             )
             
+            # Anomali tiplerini hesapla (Excel için gerekli)
+            fazla = df_analysis[(df_analysis['is_anomaly']) & (df_analysis['difference'] > 0)]
+            eksik = df_analysis[(df_analysis['is_anomaly']) & (df_analysis['difference'] < 0)]
+            
             # İstatistikler
             st.header("📊 Analiz Sonuçları")
             
