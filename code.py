@@ -41,21 +41,25 @@ if uploaded_file:
         # Sütun seçimi
         st.subheader("2️⃣ Sütunları Tanımlayın")
         
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             id_col = st.selectbox("Tesisatçı ID sütunu", df.columns, 
                                   help="Sayaç veya tesisatçı kimliği")
         
         with col2:
-            week_col = st.selectbox("Son Hafta Tüketim Sütunu", 
+            week_col = st.selectbox("Tüketim Sütunu", 
                                     [c for c in df.columns if c != id_col],
-                                    help="24.11.2025 gibi son hafta verisi")
+                                    help="24 günlük tüketim verisi")
         
         with col3:
             billing_col = st.selectbox("Faturalama Tüketim Sütunu", 
                                        [c for c in df.columns if c not in [id_col, week_col]],
-                                       help="30.11.2025 gibi aylık faturalama verisi")
+                                       help="30 günlük faturalama verisi")
+        
+        with col4:
+            measured_day = st.number_input("Ölçüm Tarihi (gün)", min_value=1, max_value=31, value=24,
+                                          help="Tüketim ne günü ölçülmüş? (24, 26, 27, vs)")
         
         if st.button("🔍 Anomali Analizi Başlat", type="primary"):
             
@@ -70,13 +74,16 @@ if uploaded_file:
             # Null değerleri kaldır
             df_analysis = df_analysis.dropna()
             
-            # Fark hesapla
-            df_analysis['difference'] = df_analysis['billing_consumption'] - df_analysis['week_consumption']
+            # Ölçüm gününe göre tüketimini 30 güne normalize et
+            df_analysis['week_consumption_normalized'] = df_analysis['week_consumption'] * (30 / measured_day)
             
-            # Yüzde fark: Faturalama değerine göre (daha doğru)
+            # Fark hesapla (30 günlük normalized son hafta vs 30 günlük faturalama)
+            df_analysis['difference'] = df_analysis['billing_consumption'] - df_analysis['week_consumption_normalized']
+            
+            # Yüzde fark: Normalized son hafta tahminine göre
             df_analysis['difference_percent'] = np.where(
-                df_analysis['billing_consumption'] != 0,
-                (df_analysis['difference'] / df_analysis['billing_consumption'] * 100).round(2),
+                df_analysis['week_consumption_normalized'] != 0,
+                (df_analysis['difference'] / df_analysis['week_consumption_normalized'] * 100).round(2),
                 0
             )
             
@@ -117,12 +124,12 @@ if uploaded_file:
             
             if len(anomalies) > 0:
                 display_df = anomalies[[
-                    'meter_id', 'week_consumption', 'billing_consumption', 
+                    'meter_id', 'week_consumption', 'week_consumption_normalized', 'billing_consumption', 
                     'difference', 'difference_percent', 'status'
                 ]].copy()
                 
                 display_df.columns = [
-                    'Tesisatçı ID', 'Son Hafta', 'Faturalama', 
+                    'Tesisatçı ID', 'Tüketim (24gün)', 'Tüketim (30gün tahmin)', 'Faturalama (30gün)', 
                     'Fark', 'Fark %', 'Durum'
                 ]
                 
@@ -240,7 +247,7 @@ if uploaded_file:
             stat_col1, stat_col2, stat_col3 = st.columns(3)
             
             with stat_col1:
-                st.write("**Son Hafta Tüketimi**")
+                st.write(f"**Tüketim ({measured_day} gün)**")
                 st.write(f"Toplam: {df_analysis['week_consumption'].sum():,.2f}")
                 st.write(f"Ortalama: {df_analysis['week_consumption'].mean():,.2f}")
                 st.write(f"Medyan: {df_analysis['week_consumption'].median():,.2f}")
@@ -248,26 +255,20 @@ if uploaded_file:
                 st.write(f"Max: {df_analysis['week_consumption'].max():,.2f}")
             
             with stat_col2:
-                st.write("**Faturalama Tüketimi**")
+                st.write("**Tüketim Tahmini (30 gün)**")
+                st.write(f"Toplam: {df_analysis['week_consumption_normalized'].sum():,.2f}")
+                st.write(f"Ortalama: {df_analysis['week_consumption_normalized'].mean():,.2f}")
+                st.write(f"Medyan: {df_analysis['week_consumption_normalized'].median():,.2f}")
+                st.write(f"Min: {df_analysis['week_consumption_normalized'].min():,.2f}")
+                st.write(f"Max: {df_analysis['week_consumption_normalized'].max():,.2f}")
+            
+            with stat_col3:
+                st.write("**Faturalama Tüketimi (30 gün)**")
                 st.write(f"Toplam: {df_analysis['billing_consumption'].sum():,.2f}")
                 st.write(f"Ortalama: {df_analysis['billing_consumption'].mean():,.2f}")
                 st.write(f"Medyan: {df_analysis['billing_consumption'].median():,.2f}")
                 st.write(f"Min: {df_analysis['billing_consumption'].min():,.2f}")
                 st.write(f"Max: {df_analysis['billing_consumption'].max():,.2f}")
-            
-            with stat_col3:
-                st.write("**Toplam Fark Analizi**")
-                total_diff = df_analysis['difference'].sum()
-                st.write(f"Toplam Fark: {total_diff:,.2f}")
-                st.write(f"Ortalama Fark: {df_analysis['difference'].mean():,.2f}")
-                st.write(f"Std Sapma: {df_analysis['difference'].std():,.2f}")
-                
-                if total_diff > 0:
-                    st.write(f"🔴 **Genel: FAZLA**")
-                elif total_diff < 0:
-                    st.write(f"🔵 **Genel: EKSİK**")
-                else:
-                    st.write(f"🟢 **Genel: AYNISI**")
             
             # Kategori özetleri
             st.subheader("📌 Anomali Kategorileri")
@@ -320,8 +321,8 @@ else:
         ### Adım 1: Excel Dosya Hazırlığı
         - Excel dosyasında 3 sütun olmalıdır:
           - **Sütun 1**: Tesisatçı/Sayaç ID
-          - **Sütun 2**: Son hafta tüketim (24.11.2025)
-          - **Sütun 3**: Aylık faturalama tüketimi (30.11.2025)
+          - **Sütun 2**: 24 günlük tüketim (24.11.2025)
+          - **Sütun 3**: 30 günlük faturalama tüketimi (30.11.2025)
         
         ### Adım 2: Dosya Yükleme
         - Excel dosyasını (.xlsx) yükleyin
