@@ -28,12 +28,15 @@ if uploaded_file:
     try:
         # Excel dosyasını oku
         if uploaded_file.name.endswith(('.xlsx', '.xls')):
-            df = pd.read_excel(uploaded_file)
+            df = pd.read_excel(uploaded_file, dtype=str)
         else:
-            df = pd.read_csv(uploaded_file)
+            df = pd.read_csv(uploaded_file, dtype=str)
         
         st.subheader("📋 Yüklenen Veriler")
         st.dataframe(df.head(10), use_container_width=True)
+        
+        # Sütun adlarını temizle
+        df.columns = df.columns.astype(str).str.strip()
         
         # Sütun seçimi
         st.subheader("2️⃣ Sütunları Tanımlayın")
@@ -70,15 +73,14 @@ if uploaded_file:
             # Fark hesapla
             df_analysis['difference'] = df_analysis['billing_consumption'] - df_analysis['week_consumption']
             
-            # Ortalama değeri kullanarak yüzde hesapla (daha adil)
-            avg_consumption = (df_analysis['week_consumption'] + df_analysis['billing_consumption']) / 2
+            # Yüzde fark: Faturalama değerine göre (daha doğru)
             df_analysis['difference_percent'] = np.where(
-                avg_consumption != 0,
-                (df_analysis['difference'] / avg_consumption * 100).round(2),
+                df_analysis['billing_consumption'] != 0,
+                (df_analysis['difference'] / df_analysis['billing_consumption'] * 100).round(2),
                 0
             )
             
-            # Anomali tespiti: Mutlak fark + yüzde fark
+            # Anomali tespiti: Sadece toleranstan fazla fark
             df_analysis['is_anomaly'] = abs(df_analysis['difference_percent']) > tolerance_percent
             
             df_analysis['status'] = df_analysis.apply(
