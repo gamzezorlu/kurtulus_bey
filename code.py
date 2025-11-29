@@ -1,9 +1,81 @@
-import streamlit as st
+else:
+                st.success("✅ Anomali tespit edilmedi! Tüm sayaçlar normal.")
+            
+            # Excel olarak indir (TÜM VERİLER)
+            st.subheader("📊 Tüm Verileri Excel Olarak İndir")
+            
+            excel_file = io.BytesIO()
+            
+            # Excel dosyası oluştur
+            with pd.ExcelWriter(excel_file, engine='openpyxl') as writer:
+                # Sheet 1: Anomaliler
+                if len(anomalies) > 0:
+                    anomalies_export = anomalies[[
+                        'meter_id', 'week_consumption', 'week_consumption_normalized', 
+                        'billing_consumption', 'difference', 'difference_percent', 'status'
+                    ]].copy()
+                    anomalies_export.columns = [
+                        'Tesisatçı ID', f'Tüketim ({measured_day}gün)', 
+                        'Tüketim (30gün tahmin)', 'Faturalama (30gün)', 
+                        'Fark', 'Fark %', 'Durum'
+                    ]
+                    anomalies_export.to_excel(writer, sheet_name='Anomaliler', index=False)
+                
+                # Sheet 2: Tüm Veriler
+                all_data_export = df_analysis[[
+                    'meter_id', 'week_consumption', 'week_consumption_normalized', 
+                    'billing_consumption', 'difference', 'difference_percent', 'status'
+                ]].copy()
+                all_data_export.columns = [
+                    'Tesisatçı ID', f'Tüketim ({measured_day}gün)', 
+                    'Tüketim (30gün tahmin)', 'Faturalama (30gün)', 
+                    'Fark', 'Fark %', 'Durum'
+                ]
+                all_data_export.to_excel(writer, sheet_name='Tüm Veriler', index=False)
+                
+                # Sheet 3: Özet İstatistikler
+                summary_data = {
+                    'Metrik': [
+                        'Toplam Sayaç',
+                        'Anomali Sayısı',
+                        'Anomali Yüzdesi',
+                        'Ortalama Fark %',
+                        'Max Fark %',
+                        'Toplam Tüketim (Ölçüm)',
+                        'Toplam Tüketim (Tahmin)',
+                        'Toplam Faturalama',
+                        'Toplam Fark'
+                    ],
+                    'Değer': [
+                        len(df_analysis),
+                        df_analysis['is_anomaly'].sum(),
+                        f"{(df_analysis['is_anomaly'].sum() / len(df_analysis) * 100):.2f}%",
+                        f"{df_analysis['difference_percent'].mean():.2f}%",
+                        f"{df_analysis['difference_percent'].abs().max():.2f}%",
+                        f"{df_analysis['week_consumption'].sum():,.2f}",
+                        f"{df_analysis['week_consumption_normalized'].sum():,.2f}",
+                        f"{df_analysis['billing_consumption'].sum():,.2f}",
+                        f"{df_analysis['difference'].sum():,.2f}"
+                    ]
+                }
+                summary_df = pd.DataFrame(summary_data)
+                summary_df.to_excel(writer, sheet_name='Özet', index=False)
+            
+            excel_file.seek(0)
+            
+            st.download_button(
+                label="📊 TÜM VERİLERİ EXCEL OLARAK İNDİR",
+                data=excel_file,
+                file_name=f"tuketim_analizi_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from datetime import datetime
 import io
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 st.set_page_config(page_title="Tüketim Anomali Tespiti", layout="wide")
 st.title("📊 Uzaktan Okumalı Sayaç - Tüketim Anomali Tespiti")
@@ -143,8 +215,6 @@ if uploaded_file:
                     file_name=f"anomalies_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                     mime="text/csv"
                 )
-            else:
-                st.success("✅ Anomali tespit edilmedi! Tüm sayaçlar normal.")
             
             # Durum özeti
             st.subheader("📈 Durum Dağılımı")
