@@ -230,59 +230,8 @@ if uploaded_file:
             )
             st.plotly_chart(fig3, use_container_width=True)
             
-            # Detaylı İstatistikler
-            st.subheader("📊 İstatistiksel Analiz")
-            
-            stat_col1, stat_col2, stat_col3 = st.columns(3)
-            
-            with stat_col1:
-                st.write(f"**Ölçüm Tüketimi ({measured_day} gün)**")
-                st.write(f"Toplam: {df_analysis['week_consumption'].sum():,.2f}")
-                st.write(f"Ortalama: {df_analysis['week_consumption'].mean():,.2f}")
-                st.write(f"Medyan: {df_analysis['week_consumption'].median():,.2f}")
-                st.write(f"Min: {df_analysis['week_consumption'].min():,.2f}")
-                st.write(f"Max: {df_analysis['week_consumption'].max():,.2f}")
-            
-            with stat_col2:
-                st.write("**Tüketim Tahmini (30 gün)**")
-                st.write(f"Toplam: {df_analysis['week_consumption_normalized'].sum():,.2f}")
-                st.write(f"Ortalama: {df_analysis['week_consumption_normalized'].mean():,.2f}")
-                st.write(f"Medyan: {df_analysis['week_consumption_normalized'].median():,.2f}")
-                st.write(f"Min: {df_analysis['week_consumption_normalized'].min():,.2f}")
-                st.write(f"Max: {df_analysis['week_consumption_normalized'].max():,.2f}")
-            
-            with stat_col3:
-                st.write("**Faturalama Tüketimi (30 gün)**")
-                st.write(f"Toplam: {df_analysis['billing_consumption'].sum():,.2f}")
-                st.write(f"Ortalama: {df_analysis['billing_consumption'].mean():,.2f}")
-                st.write(f"Medyan: {df_analysis['billing_consumption'].median():,.2f}")
-                st.write(f"Min: {df_analysis['billing_consumption'].min():,.2f}")
-                st.write(f"Max: {df_analysis['billing_consumption'].max():,.2f}")
-            
-            # Kategori özetleri
-            st.subheader("📌 Anomali Kategorileri")
-            
-            fazla = df_analysis[(df_analysis['is_anomaly']) & (df_analysis['difference'] > 0)]
-            eksik = df_analysis[(df_analysis['is_anomaly']) & (df_analysis['difference'] < 0)]
-            
-            fazla_col, eksik_col, normal_col = st.columns(3)
-            
-            with fazla_col:
-                st.metric("🔴 FAZLA Anomali", len(fazla), f"{len(fazla)/len(df_analysis)*100:.1f}%")
-                if len(fazla) > 0:
-                    st.write(f"Ort. Fazla: {fazla['difference'].mean():,.2f}")
-                    st.write(f"Toplam Fazla: {fazla['difference'].sum():,.2f}")
-            
-            with eksik_col:
-                st.metric("🔵 EKSİK Anomali", len(eksik), f"{len(eksik)/len(df_analysis)*100:.1f}%")
-                if len(eksik) > 0:
-                    st.write(f"Ort. Eksik: {eksik['difference'].mean():,.2f}")
-                    st.write(f"Toplam Eksik: {eksik['difference'].sum():,.2f}")
-            
-            with normal_col:
-                normal = df_analysis[~df_analysis['is_anomaly']]
-                st.metric("✅ Normal", len(normal), f"{len(normal)/len(df_analysis)*100:.1f}%")
-            
+           
+           
             # Tüm veriler tablosu
             st.subheader("🔍 Tüm Veriler (Filtrelenebilir)")
             
