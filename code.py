@@ -2,59 +2,65 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime
-import plotly.graph_objects as go
-import plotly.express as px
 from io import BytesIO
 import warnings
 warnings.filterwarnings('ignore')
 
-st.set_page_config(page_title="Anomali Tespiti Sistemi", layout="wide")
+st.set_page_config(page_title="Su Tüketim Anomali Analiz", layout="wide")
 
-st.title("🔍 Anomali Tespiti Sistemi - Detaylı Analiz")
+st.title("💧 Su Sayacı - Anomali Karşılaştırma Sistemi")
+st.markdown("Excel'de yaptığın gibi: **Geçen Yıl, Önceki Ay, Geçen Ay, Bu Ay** karşılaştırması")
 st.markdown("---")
 
-# Sidebar - Ayarlar
+# Sidebar - Threshold Ayarları
 with st.sidebar:
-    st.header("⚙️ Yapılandırma")
+    st.header("⚙️ Anomali Eşikleri (Dinamik)")
     
-    st.subheader("📊 Anomali Algılama Yöntemi")
-    detection_method = st.radio(
-        "Hangi yöntemi kullanmak istiyorsun?",
-        ["Standart Sapma (Z-Score)", "IQR (Çeyrekler Arası)", "Karşılaştırmalı Analiz"]
+    st.subheader("📊 Yüzde Sapma Eşik (%)")
+    pct_threshold = st.slider(
+        "Sapma % nede alarm ver?",
+        5, 100, 30,
+        help="Örn: 30% = Geçen yıldan 30% daha az/çok tüketim = Anomali"
     )
     
-    if detection_method == "Standart Sapma (Z-Score)":
-        threshold = st.slider("Z-Score Eşik Değeri", 1.0, 3.0, 2.0, 0.1)
-        st.caption("2.0 = Normal sapmaları, 3.0 = Extreme sapmaları yakalar")
+    st.subheader("📏 Mutlak Değer Eşik (m³)")
+    abs_threshold = st.slider(
+        "Mutlak tüketim farkında alarm ver?",
+        0, 5000, 100, 50,
+        help="Örn: 100 = Fark 100 m³den fazlaysa = Anomali"
+    )
     
-    elif detection_method == "IQR (Çeyrekler Arası)":
-        multiplier = st.slider("IQR Çarpanı", 1.0, 3.0, 1.5, 0.1)
-        st.caption("1.5 = Standart, 3.0 = Çok katı")
+    st.subheader("🎯 Risk Skoru Kombinasyonu")
+    risk_method = st.radio(
+        "Nasıl hesapla?",
+        ["VEYA (En Az Biri)", "VE (Her İkisi de)", "Ağırlıklı Ortalaması"]
+    )
     
-    else:
-        comp_threshold = st.slider("Karşılaştırma Eşik (%)", 10, 50, 25)
-        st.caption("Referans değerden % sapma")
+    st.markdown("---")
+    st.info(f"""
+    **Örnekler:**
+    
+    100 → 20 m³ değişimi:
+    - % Sapma: 80%
+    - Mutlak: 80 m³
+    - Sonuç: {'🚨' if pct_threshold <= 80 or abs_threshold <= 80 else '✅'}
+    
+    10000 → 8000 m³ değişimi:
+    - % Sapma: 20%
+    - Mutlak: 2000 m³
+    - Sonuç: {'🚨' if pct_threshold <= 20 or abs_threshold <= 2000 else '✅'}
+    """)
 
 # Veri Yükleme
-st.header("📁 Adım 1: Veri Yükleme")
-
+st.header("📁 Veri Yükleme")
 uploaded_file = st.file_uploader("Excel dosyasını yükle", type=["xlsx", "xls"])
 
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
     
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("Tespit Edilen Tesisat Sayısı", len(df))
-    with col2:
-        st.metric("Tespit Edilen Dönem Sayısı", len(df.columns) - 1)
+    st.info(f"✅ {len(df)} tesisat, {len(df.columns)-1} dönem yüklendi")
     
-    st.subheader("📋 Yüklenen Veri Örneği")
-    st.dataframe(df.head(10), use_container_width=True)
-    
-    # ============ VERİ DÖNÜŞTÜRME ============
-    st.header("🔄 Adım 2: Veri Hazırlama ve Normalleştirilme")
-    
+    # Veri dönüştürme
     facility_col = df.columns[0]
     date_columns = df.columns[1:]
     
@@ -71,7 +77,7 @@ if uploaded_file:
         except:
             pass
     
-    # Veriyi dönüştür
+    # Veriyi dönüştür (pivot)
     data_list = []
     
     for facility in df[facility_col]:
@@ -101,290 +107,280 @@ if uploaded_file:
             })
     
     df_work = pd.DataFrame(data_list)
+    df_work = df_work.sort_values(['facility_id', 'date'])
     
-    # Normalleştirilme açıklaması
-    with st.expander("📚 Normalleştirilme Nasıl Çalışıyor?"):
-        st.markdown("""
-        ### Normalleştirilme Formülü:
-        ```
-        Normalleştirilmiş Tüketim = (Ham Tüketim / Raporlanan Gün Sayısı) × 30
-        ```
+    st.success("✅ Veriler hazırlandı!")
+    
+    # ============ KARŞILAŞTIRMA ============
+    st.header("🔄 Dönem Karşılaştırması")
+    
+    # Her tesisat için karşılaştırma yap
+    comparison_list = []
+    
+    for facility in df_work['facility_id'].unique():
+        facility_data = df_work[df_work['facility_id'] == facility].sort_values('date')
         
-        **Örnek:**
-        - Kasım ayında 24 gün için 22.874 m³ tüketim
-        - Günlük ortalama = 22.874 / 24 = 0.953 m³/gün
-        - 30 günde tahmini = 0.953 × 30 = **28.59 m³**
+        if len(facility_data) < 2:
+            continue
         
-        **Neden yapıyoruz?**
-        - Aylar farklı gün sayılarına sahip (28-31 gün)
-        - Kısmi veri (24 gün gibi) tam aya çıkarmak için
-        - Tüm dönemleri karşılaştırılabilir hale getirmek
-        """)
-    
-    st.success("✅ Veriler normalleştirildi!")
-    
-    # ============ ANOMALİ TESPİTİ ============
-    st.header("🎯 Adım 3: Anomali Tespit Yöntemleri")
-    
-    def apply_zscore_detection(group, threshold):
-        """Z-Score tabanlı anomali tespiti"""
-        mean = group['normalized_consumption'].mean()
-        std = group['normalized_consumption'].std()
+        # En son dönemi (bu ay - kısmi veri)
+        latest = facility_data.iloc[-1]
         
-        if std == 0:
-            group['z_score'] = 0
-            group['method_anomaly'] = False
+        # Geçen ayı bul
+        prev_month = None
+        if len(facility_data) >= 2:
+            prev_month = facility_data.iloc[-2]
+        
+        # Geçen yılın aynı ayını bul
+        same_month_last_year = None
+        for row in facility_data.itertuples():
+            if row.month == latest.month and row.year == latest.year - 1:
+                same_month_last_year = row
+        
+        # 2 ay öncesini bul (iki önceki ay)
+        month_2_ago = None
+        if len(facility_data) >= 3:
+            month_2_ago = facility_data.iloc[-3]
+        
+        # Karşılaştırma yap
+        comp_dict = {
+            'facility_id': facility,
+            'current_date': latest.date,
+            'current_month': latest.month_name,
+            'current_raw': latest.raw_consumption,
+            'current_normalized': latest.normalized_consumption,
+            'current_days': latest.days_reported,
+        }
+        
+        # Referans değer olarak normalleştirilmiş değeri kullan
+        reference_value = latest.normalized_consumption
+        
+        # Geçen yılın aynı ayı ile karşılaştır
+        if same_month_last_year is not None:
+            comp_dict['last_year_same_month'] = same_month_last_year.normalized_consumption
+            comp_dict['last_year_date'] = same_month_last_year.date
+            comp_dict['diff_last_year_pct'] = abs(latest.normalized_consumption - same_month_last_year.normalized_consumption) / (same_month_last_year.normalized_consumption + 0.001) * 100
+            comp_dict['diff_last_year_abs'] = abs(latest.normalized_consumption - same_month_last_year.normalized_consumption)
         else:
-            group['z_score'] = np.abs((group['normalized_consumption'] - mean) / std)
-            group['method_anomaly'] = group['z_score'] > threshold
+            comp_dict['last_year_same_month'] = None
+            comp_dict['last_year_date'] = None
+            comp_dict['diff_last_year_pct'] = None
+            comp_dict['diff_last_year_abs'] = None
         
-        return group
-    
-    def apply_iqr_detection(group, multiplier):
-        """IQR tabanlı anomali tespiti"""
-        Q1 = group['normalized_consumption'].quantile(0.25)
-        Q3 = group['normalized_consumption'].quantile(0.75)
-        IQR = Q3 - Q1
+        # Geçen ay ile karşılaştır
+        if prev_month is not None:
+            comp_dict['prev_month'] = prev_month.normalized_consumption
+            comp_dict['prev_month_date'] = prev_month.date
+            comp_dict['diff_prev_month_pct'] = abs(latest.normalized_consumption - prev_month.normalized_consumption) / (prev_month.normalized_consumption + 0.001) * 100
+            comp_dict['diff_prev_month_abs'] = abs(latest.normalized_consumption - prev_month.normalized_consumption)
+        else:
+            comp_dict['prev_month'] = None
+            comp_dict['prev_month_date'] = None
+            comp_dict['diff_prev_month_pct'] = None
+            comp_dict['diff_prev_month_abs'] = None
         
-        lower_bound = Q1 - (multiplier * IQR)
-        upper_bound = Q3 + (multiplier * IQR)
+        # 2 ay öncesi ile karşılaştır
+        if month_2_ago is not None:
+            comp_dict['month_2_ago'] = month_2_ago.normalized_consumption
+            comp_dict['month_2_ago_date'] = month_2_ago.date
+            comp_dict['diff_month_2ago_pct'] = abs(latest.normalized_consumption - month_2_ago.normalized_consumption) / (month_2_ago.normalized_consumption + 0.001) * 100
+            comp_dict['diff_month_2ago_abs'] = abs(latest.normalized_consumption - month_2_ago.normalized_consumption)
+        else:
+            comp_dict['month_2_ago'] = None
+            comp_dict['month_2_ago_date'] = None
+            comp_dict['diff_month_2ago_pct'] = None
+            comp_dict['diff_month_2ago_abs'] = None
         
-        group['iqr_lower'] = lower_bound
-        group['iqr_upper'] = upper_bound
-        group['method_anomaly'] = (group['normalized_consumption'] < lower_bound) | (group['normalized_consumption'] > upper_bound)
+        comparison_list.append(comp_dict)
+    
+    df_comparison = pd.DataFrame(comparison_list)
+    
+    # ============ ANOMALİ MARKAJ ============
+    
+    def check_anomaly(row, threshold_pct, threshold_abs, method):
+        """Anomali kontrolü yap"""
+        anomaly_flags = []
+        anomaly_reason = []
         
-        return group
-    
-    def apply_comparative_detection(group, threshold):
-        """Karşılaştırmalı anomali tespiti"""
-        mean = group['normalized_consumption'].mean()
+        # Geçen yılla karşılaştır
+        if row['diff_last_year_pct'] is not None:
+            is_anom_pct = row['diff_last_year_pct'] > threshold_pct
+            is_anom_abs = row['diff_last_year_abs'] > threshold_abs
+            
+            if is_anom_pct:
+                anomaly_reason.append(f"Geçen yıldan {row['diff_last_year_pct']:.1f}%")
+            if is_anom_abs:
+                anomaly_reason.append(f"Geçen yıldan {row['diff_last_year_abs']:.1f}m³")
+            
+            if method == "VEYA (En Az Biri)":
+                anomaly_flags.append(is_anom_pct or is_anom_abs)
+            elif method == "VE (Her İkisi de)":
+                anomaly_flags.append(is_anom_pct and is_anom_abs)
+            else:
+                combined = (row['diff_last_year_pct'] + row['diff_last_year_abs'] / 10) / 2
+                anomaly_flags.append(combined > (threshold_pct + threshold_abs / 10) / 2)
         
-        group['deviation_percent'] = np.abs((group['normalized_consumption'] - mean) / mean * 100)
-        group['method_anomaly'] = group['deviation_percent'] > threshold
+        # Geçen ay ile karşılaştır
+        if row['diff_prev_month_pct'] is not None:
+            is_anom_pct = row['diff_prev_month_pct'] > threshold_pct
+            is_anom_abs = row['diff_prev_month_abs'] > threshold_abs
+            
+            if is_anom_pct:
+                anomaly_reason.append(f"Geçen aydan {row['diff_prev_month_pct']:.1f}%")
+            if is_anom_abs:
+                anomaly_reason.append(f"Geçen aydan {row['diff_prev_month_abs']:.1f}m³")
+            
+            if method == "VEYA (En Az Biri)":
+                anomaly_flags.append(is_anom_pct or is_anom_abs)
+            elif method == "VE (Her İkisi de)":
+                anomaly_flags.append(is_anom_pct and is_anom_abs)
+            else:
+                combined = (row['diff_prev_month_pct'] + row['diff_prev_month_abs'] / 10) / 2
+                anomaly_flags.append(combined > (threshold_pct + threshold_abs / 10) / 2)
         
-        return group
+        # 2 ay öncesiyle karşılaştır
+        if row['diff_month_2ago_pct'] is not None:
+            is_anom_pct = row['diff_month_2ago_pct'] > threshold_pct
+            is_anom_abs = row['diff_month_2ago_abs'] > threshold_abs
+            
+            if is_anom_pct:
+                anomaly_reason.append(f"2 ay öncesinden {row['diff_month_2ago_pct']:.1f}%")
+            if is_anom_abs:
+                anomaly_reason.append(f"2 ay öncesinden {row['diff_month_2ago_abs']:.1f}m³")
+            
+            if method == "VEYA (En Az Biri)":
+                anomaly_flags.append(is_anom_pct or is_anom_abs)
+            elif method == "VE (Her İkisi de)":
+                anomaly_flags.append(is_anom_pct and is_anom_abs)
+            else:
+                combined = (row['diff_month_2ago_pct'] + row['diff_month_2ago_abs'] / 10) / 2
+                anomaly_flags.append(combined > (threshold_pct + threshold_abs / 10) / 2)
+        
+        is_anomaly = any(anomaly_flags) if anomaly_flags else False
+        
+        return is_anomaly, ", ".join(anomaly_reason) if anomaly_reason else "Normal"
     
-    # Seçilen yöntemi uygula
-    if detection_method == "Standart Sapma (Z-Score)":
-        df_analysis = df_work.groupby('facility_id', group_keys=False).apply(
-            lambda x: apply_zscore_detection(x, threshold)
-        )
-        method_name = f"Z-Score (Eşik: {threshold})"
-    
-    elif detection_method == "IQR (Çeyrekler Arası)":
-        df_analysis = df_work.groupby('facility_id', group_keys=False).apply(
-            lambda x: apply_iqr_detection(x, multiplier)
-        )
-        method_name = f"IQR (Çarpan: {multiplier})"
-    
-    else:
-        df_analysis = df_work.groupby('facility_id', group_keys=False).apply(
-            lambda x: apply_comparative_detection(x, comp_threshold)
-        )
-        method_name = f"Karşılaştırmalı (Eşik: {comp_threshold}%)"
-    
-    df_analysis['is_anomaly'] = df_analysis['method_anomaly']
+    # Anomali kontrol et
+    df_comparison['is_anomaly'] = df_comparison.apply(
+        lambda row: check_anomaly(row, pct_threshold, abs_threshold, risk_method)[0],
+        axis=1
+    )
+    df_comparison['anomaly_reason'] = df_comparison.apply(
+        lambda row: check_anomaly(row, pct_threshold, abs_threshold, risk_method)[1],
+        axis=1
+    )
     
     # ============ SONUÇLAR ============
-    st.header("📈 Adım 4: Sonuçlar")
-    
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("📊 Toplam Veri Noktası", len(df_analysis))
+        st.metric("📊 Toplam Tesisat", len(df_comparison))
     with col2:
-        st.metric("🏢 Toplam Tesisat", df_analysis['facility_id'].nunique())
+        st.metric("🚨 Anomali Sayısı", df_comparison['is_anomaly'].sum())
     with col3:
-        anomalies_count = df_analysis[df_analysis['is_anomaly']].shape[0]
-        st.metric("🚨 Anomali Sayısı", anomalies_count)
+        st.metric("✅ Normal Sayısı", (~df_comparison['is_anomaly']).sum())
     with col4:
-        anomaly_pct = (anomalies_count / len(df_analysis) * 100) if len(df_analysis) > 0 else 0
+        anomaly_pct = (df_comparison['is_anomaly'].sum() / len(df_comparison) * 100) if len(df_comparison) > 0 else 0
         st.metric("⚠️ Anomali Oranı", f"{anomaly_pct:.1f}%")
     
-    st.markdown(f"**Kullanılan Yöntem:** {method_name}")
-    
-    # ============ ANOMALİ DETAYLARI ============
+    # ============ ANOMALİ TABLOSU ============
     st.subheader("🚨 Tespit Edilen Anomaliler")
     
-    anomalies_df = df_analysis[df_analysis['is_anomaly']].copy().sort_values('normalized_consumption', ascending=False)
+    anomalies = df_comparison[df_comparison['is_anomaly']].sort_values('current_raw', ascending=False)
     
-    if len(anomalies_df) > 0:
-        # Filtreleme
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            selected_facilities = st.multiselect(
-                "Tesisat Filtrele",
-                sorted(anomalies_df['facility_id'].unique()),
-                default=sorted(anomalies_df['facility_id'].unique())[:5]
-            )
-        
-        filtered_anomalies = anomalies_df[anomalies_df['facility_id'].isin(selected_facilities)]
-        
+    if len(anomalies) > 0:
         # Detaylı tablo
-        display_df = filtered_anomalies[['facility_id', 'month_name', 'raw_consumption', 
-                                         'days_reported', 'normalized_consumption']].copy()
-        display_df.columns = ['Tesisat ID', 'Dönem', 'Ham Tüketim (m³)', 'Gün', 'Norm. Tüketim (30g)']
-        display_df['Ham Tüketim (m³)'] = display_df['Ham Tüketim (m³)'].round(2)
-        display_df['Norm. Tüketim (30g)'] = display_df['Norm. Tüketim (30g)'].round(2)
+        display_data = []
+        for idx, row in anomalies.iterrows():
+            display_data.append({
+                'Tesisat': row['facility_id'],
+                'Bu Ay (m³)': f"{row['current_normalized']:.2f}",
+                'Geçen Yıl': f"{row['last_year_same_month']:.2f}" if row['last_year_same_month'] else "N/A",
+                'Sapm. %': f"{row['diff_last_year_pct']:.1f}%" if row['diff_last_year_pct'] else "-",
+                'Sapm. m³': f"{row['diff_last_year_abs']:.1f}" if row['diff_last_year_abs'] else "-",
+                'Neden': row['anomaly_reason'],
+                'Durum': '🚨 ANOMALI'
+            })
         
-        st.dataframe(display_df, use_container_width=True)
-        
-        # Her anomaliyi detaylı göster
-        st.subheader("📌 Anomali Detayları")
-        
-        for idx, row in filtered_anomalies.iterrows():
-            with st.expander(f"🔍 {row['facility_id']} - {row['month_name']}"):
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.write("**Ham Tüketim**")
-                    st.write(f"{row['raw_consumption']:.2f} m³")
-                with col2:
-                    st.write("**Raporlanan Gün**")
-                    st.write(f"{row['days_reported']} gün")
-                with col3:
-                    st.write("**Norm. Tüketim**")
-                    st.write(f"{row['normalized_consumption']:.2f} m³")
-                with col4:
-                    st.write("**Durum**")
-                    st.error("🚨 ANOMALI")
-                
-                if detection_method == "Standart Sapma (Z-Score)":
-                    st.write(f"**Z-Score Değeri:** {row['z_score']:.2f} (Eşik: {threshold})")
-                elif detection_method == "Karşılaştırmalı Analiz":
-                    st.write(f"**Sapma Yüzdesi:** {row['deviation_percent']:.1f}% (Eşik: {comp_threshold}%)")
+        display_df = pd.DataFrame(display_data)
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
     else:
         st.info("✅ Anomali tespit edilmedi!")
     
-    # ============ GÖRSELLEŞTIRME ============
-    st.header("📊 Adım 5: Görselleştirme")
+    # ============ DETAYLI GÖRÜNÜM ============
+    st.subheader("📋 Tüm Tesisatlar - Yan Yana Karşılaştırma")
     
-    viz_type = st.tabs(["Tesisat Analizi", "Genel Dağılım", "Karşılaştırma"])
+    # Filtre
+    show_all = st.checkbox("Tümünü göster", value=False)
     
-    with viz_type[0]:
-        st.subheader("📈 Tesisat Detaylı Analizi")
-        facilities = sorted(df_analysis['facility_id'].unique())
-        selected_facility = st.selectbox("Tesisat Seç:", facilities, key="facility_select")
-        
-        facility_data = df_analysis[df_analysis['facility_id'] == selected_facility].sort_values('date')
-        
-        if len(facility_data) > 0:
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                fig = go.Figure()
-                
-                normal_data = facility_data[~facility_data['is_anomaly']]
-                anomaly_data = facility_data[facility_data['is_anomaly']]
-                
-                fig.add_trace(go.Scatter(
-                    x=normal_data['month_name'],
-                    y=normal_data['normalized_consumption'],
-                    mode='lines+markers',
-                    name='Normal Tüketim',
-                    line=dict(color='blue', width=2),
-                    marker=dict(size=10)
-                ))
-                
-                if len(anomaly_data) > 0:
-                    fig.add_trace(go.Scatter(
-                        x=anomaly_data['month_name'],
-                        y=anomaly_data['normalized_consumption'],
-                        mode='markers',
-                        name='Anomali',
-                        marker=dict(color='red', size=15, symbol='diamond')
-                    ))
-                
-                mean_val = facility_data['normalized_consumption'].mean()
-                fig.add_hline(y=mean_val, line_dash="dash", line_color="green", 
-                             annotation_text=f"Ortalama: {mean_val:.1f}")
-                
-                fig.update_layout(
-                    title=f"Tesisat {selected_facility} - Tüketim Trendi",
-                    xaxis_title="Dönem",
-                    yaxis_title="Tüketim (m³)",
-                    height=400,
-                    hovermode='x unified'
-                )
-                st.plotly_chart(fig, use_container_width=True)
-            
-            with col2:
-                detail_data = facility_data[['month_name', 'raw_consumption', 'normalized_consumption', 'is_anomaly']].copy()
-                detail_data['Durum'] = detail_data['is_anomaly'].apply(lambda x: '🚨 ANOMALI' if x else '✅ Normal')
-                detail_data.columns = ['Dönem', 'Ham Tüketim', 'Norm. Tüketim', '_', 'Durum']
-                detail_data = detail_data.drop('_', axis=1)
-                detail_data['Ham Tüketim'] = detail_data['Ham Tüketim'].round(2)
-                detail_data['Norm. Tüketim'] = detail_data['Norm. Tüketim'].round(2)
-                
-                st.dataframe(detail_data, use_container_width=True, hide_index=True)
+    if show_all:
+        display_full = df_comparison.copy()
+    else:
+        display_full = anomalies.copy()
     
-    with viz_type[1]:
-        st.subheader("📊 Genel Dağılım Analizi")
+    # Tablo
+    table_data = []
+    for idx, row in display_full.iterrows():
+        status = "🚨 ANOMALI" if row['is_anomaly'] else "✅ NORMAL"
         
-        fig = px.box(df_analysis, y='normalized_consumption', 
-                    title="Tüm Tesisatlar - Tüketim Dağılımı",
-                    labels={'normalized_consumption': 'Normalleştirilmiş Tüketim (m³)'})
-        fig.update_layout(height=400)
-        st.plotly_chart(fig, use_container_width=True)
-        
-        fig2 = px.histogram(df_analysis, x='normalized_consumption', nbins=50,
-                           title="Tüketim Dağılımı Histogramı",
-                           labels={'normalized_consumption': 'Normalleştirilmiş Tüketim (m³)'})
-        fig2.update_layout(height=400)
-        st.plotly_chart(fig2, use_container_width=True)
+        table_data.append({
+            'Tesisat': row['facility_id'],
+            'Durum': status,
+            'Bu Ay\n(30g norm.)': f"{row['current_normalized']:.1f}",
+            'Bu Ay\n(Ham)': f"{row['current_raw']:.1f}",
+            'Geçen Yıl\nAynı Ay': f"{row['last_year_same_month']:.1f}" if row['last_year_same_month'] else "-",
+            'Fark %\n(Geçen Yıl)': f"{row['diff_last_year_pct']:.1f}%" if row['diff_last_year_pct'] else "-",
+            'Fark m³\n(Geçen Yıl)': f"{row['diff_last_year_abs']:.1f}" if row['diff_last_year_abs'] else "-",
+            'Geçen Ay': f"{row['prev_month']:.1f}" if row['prev_month'] else "-",
+            'Fark %\n(Geçen Ay)': f"{row['diff_prev_month_pct']:.1f}%" if row['diff_prev_month_pct'] else "-",
+        })
     
-    with viz_type[2]:
-        st.subheader("🔄 Dönem Karşılaştırması")
-        
-        period_stats = df_analysis.groupby('month_name').agg({
-            'normalized_consumption': ['mean', 'min', 'max', 'std']
-        }).round(2)
-        
-        fig = go.Figure()
-        
-        months_order = sorted(df_analysis['month_name'].unique())
-        
-        for month in months_order:
-            month_data = df_analysis[df_analysis['month_name'] == month]['normalized_consumption']
-            fig.add_trace(go.Box(y=month_data, name=month))
-        
-        fig.update_layout(
-            title="Dönemlere Göre Tüketim Kutu Grafikleri",
-            yaxis_title="Normalleştirilmiş Tüketim (m³)",
-            height=400
-        )
-        st.plotly_chart(fig, use_container_width=True)
+    table_df = pd.DataFrame(table_data)
+    st.dataframe(table_df, use_container_width=True, hide_index=True)
     
     # ============ RAPOR İNDİR ============
-    st.header("💾 Adım 6: Rapor İndir")
+    st.header("💾 Rapor İndir")
     
-    if st.button("📊 Excel Raporu Oluştur", key="create_report"):
-        output = BytesIO()
-        
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            # Anomaliler
-            anomaly_export = df_analysis[df_analysis['is_anomaly']][
-                ['facility_id', 'date', 'month_name', 'raw_consumption', 
-                 'days_reported', 'normalized_consumption']
-            ].sort_values('normalized_consumption', ascending=False)
-            anomaly_export.to_excel(writer, sheet_name='Anomaliler', index=False)
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("📊 Anomaliler - Excel"):
+            export_df = anomalies[[
+                'facility_id', 'current_month', 'current_raw', 'current_normalized',
+                'last_year_same_month', 'diff_last_year_pct', 'diff_last_year_abs',
+                'prev_month', 'diff_prev_month_pct', 'anomaly_reason'
+            ]].copy()
+            export_df.columns = [
+                'Tesisat', 'Dönem', 'Ham Tüketim', 'Norm. Tüketim (30g)',
+                'Geçen Yıl', 'Sapma %', 'Sapma m³', 'Geçen Ay', 'Sapma %', 'Neden'
+            ]
             
-            # Tüm Veriler
-            all_export = df_analysis[['facility_id', 'date', 'month_name', 'raw_consumption',
-                                      'days_reported', 'normalized_consumption', 'is_anomaly']]
-            all_export.to_excel(writer, sheet_name='Tüm Veriler', index=False)
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                export_df.to_excel(writer, sheet_name='Anomaliler', index=False)
+                df_comparison.to_excel(writer, sheet_name='Tüm Veriler', index=False)
             
-            # Özet İstatistikler
-            summary = df_analysis.groupby('facility_id').agg({
-                'normalized_consumption': ['count', 'mean', 'min', 'max', 'std']
-            }).round(2)
-            summary.to_excel(writer, sheet_name='Özet İstatistikler')
-        
-        output.seek(0)
-        st.download_button(
-            label="⬇️ Raporu İndir (Excel)",
-            data=output.getvalue(),
-            file_name=f"anomali_raporu_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+            output.seek(0)
+            st.download_button(
+                label="⬇️ Anomaliler (Excel)",
+                data=output.getvalue(),
+                file_name=f"anomaliler_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+    
+    with col2:
+        if st.button("📊 Tüm Veriler - Excel"):
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df_comparison.to_excel(writer, sheet_name='Karşılaştırma', index=False)
+                df_work.to_excel(writer, sheet_name='Ham Veriler', index=False)
+            
+            output.seek(0)
+            st.download_button(
+                label="⬇️ Tüm Veriler (Excel)",
+                data=output.getvalue(),
+                file_name=f"tum_veriler_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
 
 else:
-    st.info("👈 Başlamak için lütfen Excel dosyasını yükleyin")
+    st.info("👈 Başlamak için Excel dosyasını yükleyin")
